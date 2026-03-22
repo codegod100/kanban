@@ -1,0 +1,46 @@
+.nav-menu {
+    padding: 1rem;
+    margin-top: 0.75rem;
+}
+
+.section-label {
+    padding: 0 0.8rem 0.7rem;
+    color: #a0a0a0;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.nav-link {
+    display: block;
+    padding: 0.9rem 0.8rem;
+    border-radius: 8px;
+    text-decoration: none;
+    color: #d0d0d0;
+    border: 1px solid transparent;
+    transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
+.nav-link:hover {
+    color: #ffffff;
+    background: #2f2f2f;
+    border-color: #404040;
+}
+
+.nav-link.active {
+    color: #ffffff;
+    background: #2f2f2f;
+    border-color: #404040;
+}
+
+.nav-link-title {
+    display: block;
+    font-weight: 650;
+}
+
+.nav-link-caption {
+    display: block;
+    margin-top: 0.18rem;
+    font-size: 0.82rem;
+    color: #a0a0a0;
+}

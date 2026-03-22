@@ -1,0 +1,443 @@
+﻿@page "/"
+@using System.Text.Json
+@inject IJSRuntime JS
+
+<PageTitle>Home</PageTitle>
+
+<div class="page-grid">
+    <section class="panel status-strip">
+        <div class="status-item">
+            <div class="stat-label">Complete</div>
+            <div class="stat-value">@CompletionPercent%</div>
+        </div>
+        <div class="status-item">
+            <div class="stat-label">Inbox</div>
+            <div class="stat-value">@CountByStage("Inbox")</div>
+        </div>
+        <div class="status-item">
+            <div class="stat-label">Doing</div>
+            <div class="stat-value">@CountByStage("Doing")</div>
+        </div>
+        <div class="status-item">
+            <div class="stat-label">Blocked</div>
+            <div class="stat-value">@CountByStage("Blocked")</div>
+        </div>
+        <div class="status-item">
+            <div class="stat-label">Done</div>
+            <div class="stat-value">@CompletedCount</div>
+        </div>
+    </section>
+
+    <section class="kanban-board">
+        @foreach (var stage in BoardStages)
+        {
+            var laneTasks = GetStageTasks(stage);
+            <section class="panel kanban-lane @(DragOverStage == stage ? "drop-target" : string.Empty)">
+                <div class="lane-header">
+                    <div>
+                        <div class="stat-label">@stage</div>
+                        <h2>@laneTasks.Count cards</h2>
+                    </div>
+                    <FluentButton Appearance="Appearance.Lightweight" OnClick="@(() => OpenComposer(stage))">
+                        Add new
+                    </FluentButton>
+                </div>
+
+                <div class="lane-stack"
+                     @ondragenter="@(() => SetDragOver(stage))"
+                     @ondragover:preventDefault="true"
+                     @ondragover="@(() => SetDragOver(stage))"
+                     @ondragleave="@ClearDragOver"
+                     @ondrop="@(() => DropOnStageAsync(stage, false))">
+                    @if (laneTasks.Count == 0)
+                    {
+                        <div class="empty-state">
+                            <div class="stat-label">Empty lane</div>
+                            <p class="copy">Nothing parked here right now.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        @foreach (var task in laneTasks)
+                        {
+                            <article class="task-card @(DraggedTaskId == task.Id ? "is-dragging" : string.Empty)"
+                                     draggable="true"
+                                     @ondragstart="@(() => StartDrag(task.Id))"
+                                     @ondragend="EndDrag">
+                                <div class="task-head">
+                                    <h3>@task.Title</h3>
+                                    <div class="task-badges">
+                                        <FluentBadge Appearance="Appearance.Neutral">@task.Priority</FluentBadge>
+                                    </div>
+                                </div>
+
+                                @if (!string.IsNullOrWhiteSpace(task.Notes))
+                                {
+                                    <p class="task-notes">@task.Notes</p>
+                                }
+
+                                <div class="task-meta">
+                                    Updated @task.UpdatedAt.ToLocalTime().ToString("MMM d, h:mm tt")
+                                </div>
+
+                                <div class="task-actions">
+                                    <FluentButton Appearance="Appearance.Lightweight" OnClick="@(() => MoveBackwardAsync(task.Id))">
+                                        Back
+                                    </FluentButton>
+                                    <FluentButton Appearance="Appearance.Accent" OnClick="@(() => MoveForwardAsync(task.Id))">
+                                        Next
+                                    </FluentButton>
+                                    <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => DeleteTaskAsync(task.Id))">
+                                        Delete
+                                    </FluentButton>
+                                </div>
+                            </article>
+                        }
+                    }
+                </div>
+            </section>
+        }
+
+        <section class="panel kanban-lane done-lane @(DragOverStage == "Done" ? "drop-target" : string.Empty)">
+            <div class="lane-header">
+                <div>
+                    <div class="stat-label">Done</div>
+                    <h2>@CompletedCount cards</h2>
+                </div>
+            </div>
+
+            <div class="lane-stack"
+                 @ondragenter="@(() => SetDragOver("Done"))"
+                 @ondragover:preventDefault="true"
+                 @ondragover="@(() => SetDragOver("Done"))"
+                 @ondragleave="@ClearDragOver"
+                 @ondrop="@(() => DropOnStageAsync("Done", true))">
+                @if (DoneTasks.Count == 0)
+                {
+                    <div class="empty-state">
+                        <div class="stat-label">No completions yet</div>
+                        <p class="copy">Finish a task to move it here.</p>
+                    </div>
+                }
+                else
+                {
+                    @foreach (var task in DoneTasks)
+                    {
+                        <article class="task-card done-card @(DraggedTaskId == task.Id ? "is-dragging" : string.Empty)"
+                                 draggable="true"
+                                 @ondragstart="@(() => StartDrag(task.Id))"
+                                 @ondragend="EndDrag">
+                            <div class="task-head">
+                                <h3>@task.Title</h3>
+                                <FluentBadge Appearance="Appearance.Neutral">Done</FluentBadge>
+                            </div>
+
+                            @if (!string.IsNullOrWhiteSpace(task.Notes))
+                            {
+                                <p class="task-notes">@task.Notes</p>
+                            }
+
+                            <div class="task-actions">
+                                <FluentButton Appearance="Appearance.Lightweight" OnClick="@(() => ReopenTaskAsync(task.Id))">
+                                    Reopen
+                                </FluentButton>
+                                <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => DeleteTaskAsync(task.Id))">
+                                    Delete
+                                </FluentButton>
+                            </div>
+                        </article>
+                    }
+                }
+            </div>
+        </section>
+    </section>
+</div>
+
+@if (IsComposerOpen)
+{
+    <div class="modal-backdrop" @onclick="CloseComposer">
+        <section class="modal-panel" @onclick:stopPropagation="true">
+            <div class="lane-header">
+                <div>
+                    <div class="stat-label">New Card</div>
+                    <h2>Add to @DraftStage</h2>
+                </div>
+                <FluentButton Appearance="Appearance.Stealth" OnClick="CloseComposer">
+                    Close
+                </FluentButton>
+            </div>
+
+            <div class="control-stack compact-stack">
+                <FluentTextField @bind-Value="DraftTitle" Label="Task title" Appearance="FluentInputAppearance.Outline" />
+                <FluentTextArea @bind-Value="DraftNotes" Label="Notes" Rows="5" Appearance="FluentInputAppearance.Outline" />
+
+                <div class="split-fields">
+                    <FluentSelect TOption="string" @bind-Value="DraftPriority" Appearance="Appearance.Outline" Label="Priority">
+                        <FluentOption Value="@("Low")">Low</FluentOption>
+                        <FluentOption Value="@("Medium")">Medium</FluentOption>
+                        <FluentOption Value="@("High")">High</FluentOption>
+                    </FluentSelect>
+
+                    <FluentSelect TOption="string" @bind-Value="DraftStage" Appearance="Appearance.Outline" Label="Lane">
+                        @foreach (var lane in BoardStages)
+                        {
+                            <FluentOption Value="@lane">@lane</FluentOption>
+                        }
+                    </FluentSelect>
+                </div>
+
+                <div class="modal-actions">
+                    <FluentButton Appearance="Appearance.Outline" OnClick="CloseComposer">
+                        Cancel
+                    </FluentButton>
+                    <FluentButton Appearance="Appearance.Accent" OnClick="AddTaskAsync">
+                        Add card
+                    </FluentButton>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(StatusMessage))
+                {
+                    <div class="inline-note status-ok">@StatusMessage</div>
+                }
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    private const string StorageKey = "focus-board.tasks";
+    private static readonly string[] BoardStages = ["Inbox", "Doing", "Blocked"];
+
+    private string DraftTitle { get; set; } = string.Empty;
+    private string DraftNotes { get; set; } = string.Empty;
+    private string DraftPriority { get; set; } = "Medium";
+    private string DraftStage { get; set; } = "Inbox";
+    private bool IsComposerOpen { get; set; }
+    private Guid? DraggedTaskId { get; set; }
+    private string? DragOverStage { get; set; }
+    private string? StatusMessage { get; set; }
+    private bool _loaded;
+
+    private List<TaskItem> Tasks { get; set; } =
+    [
+        new() { Id = Guid.NewGuid(), Title = "Triage fresh work", Notes = "Sort new requests into the right lane.", Priority = "Medium", Stage = "Inbox" },
+        new() { Id = Guid.NewGuid(), Title = "Finish board redesign", Notes = "Keep the scope narrow and ship the useful core.", Priority = "High", Stage = "Doing" },
+        new() { Id = Guid.NewGuid(), Title = "Wait for API answer", Notes = "Blocked on upstream credentials.", Priority = "Low", Stage = "Blocked" }
+    ];
+
+    private List<TaskItem> DoneTasks => Tasks.Where(t => t.IsDone)
+        .OrderByDescending(t => t.UpdatedAt)
+        .ToList();
+
+    private int CompletedCount => Tasks.Count(t => t.IsDone);
+    private int CompletionPercent => Tasks.Count == 0 ? 0 : (int)Math.Round((double)CompletedCount / Tasks.Count * 100);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _loaded)
+        {
+            return;
+        }
+
+        var stored = await JS.InvokeAsync<string?>("focusBoard.load", StorageKey);
+        if (!string.IsNullOrWhiteSpace(stored))
+        {
+            var parsed = JsonSerializer.Deserialize<List<TaskItem>>(stored);
+            if (parsed is not null)
+            {
+                Tasks = parsed;
+            }
+        }
+
+        _loaded = true;
+        StateHasChanged();
+    }
+
+    private List<TaskItem> GetStageTasks(string stage) => Tasks
+        .Where(t => !t.IsDone && t.Stage == stage)
+        .OrderByDescending(t => PriorityRank(t.Priority))
+        .ThenByDescending(t => t.UpdatedAt)
+        .ToList();
+
+    private int CountByStage(string stage) => Tasks.Count(t => !t.IsDone && t.Stage == stage);
+
+    private void OpenComposer(string stage)
+    {
+        DraftStage = stage;
+        IsComposerOpen = true;
+        StatusMessage = null;
+    }
+
+    private void CloseComposer()
+    {
+        IsComposerOpen = false;
+    }
+
+    private void StartDrag(Guid id)
+    {
+        DraggedTaskId = id;
+    }
+
+    private void EndDrag()
+    {
+        DraggedTaskId = null;
+        DragOverStage = null;
+    }
+
+    private void SetDragOver(string stage)
+    {
+        DragOverStage = stage;
+    }
+
+    private void ClearDragOver()
+    {
+        DragOverStage = null;
+    }
+
+    private async Task AddTaskAsync()
+    {
+        if (string.IsNullOrWhiteSpace(DraftTitle))
+        {
+            StatusMessage = "Enter a task title first.";
+            return;
+        }
+
+        Tasks.Insert(0, new TaskItem
+        {
+            Id = Guid.NewGuid(),
+            Title = DraftTitle.Trim(),
+            Notes = DraftNotes.Trim(),
+            Priority = DraftPriority,
+            Stage = DraftStage,
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
+
+        DraftTitle = string.Empty;
+        DraftNotes = string.Empty;
+        DraftPriority = "Medium";
+        IsComposerOpen = false;
+        StatusMessage = $"Card added to {DraftStage}.";
+        await PersistAsync();
+    }
+
+    private async Task MoveForwardAsync(Guid id)
+    {
+        var task = Tasks.FirstOrDefault(t => t.Id == id);
+        if (task is null)
+        {
+            return;
+        }
+
+        task.UpdatedAt = DateTimeOffset.UtcNow;
+        if (task.Stage == "Inbox")
+        {
+            task.Stage = "Doing";
+            StatusMessage = "Moved to Doing.";
+        }
+        else if (task.Stage == "Doing")
+        {
+            task.Stage = "Blocked";
+            StatusMessage = "Moved to Blocked.";
+        }
+        else
+        {
+            task.IsDone = true;
+            task.Stage = "Done";
+            StatusMessage = "Task completed.";
+        }
+
+        await PersistAsync();
+    }
+
+    private async Task MoveBackwardAsync(Guid id)
+    {
+        var task = Tasks.FirstOrDefault(t => t.Id == id);
+        if (task is null)
+        {
+            return;
+        }
+
+        task.UpdatedAt = DateTimeOffset.UtcNow;
+        task.Stage = task.Stage switch
+        {
+            "Doing" => "Inbox",
+            "Blocked" => "Doing",
+            _ => "Inbox"
+        };
+        task.IsDone = false;
+        StatusMessage = $"Moved back to {task.Stage}.";
+        await PersistAsync();
+    }
+
+    private async Task ReopenTaskAsync(Guid id)
+    {
+        var task = Tasks.FirstOrDefault(t => t.Id == id);
+        if (task is null)
+        {
+            return;
+        }
+
+        task.IsDone = false;
+        task.Stage = "Doing";
+        task.UpdatedAt = DateTimeOffset.UtcNow;
+        StatusMessage = "Task reopened in Doing.";
+        await PersistAsync();
+    }
+
+    private async Task DeleteTaskAsync(Guid id)
+    {
+        if (Tasks.RemoveAll(t => t.Id == id) > 0)
+        {
+            StatusMessage = "Card deleted.";
+            await PersistAsync();
+        }
+    }
+
+    private async Task DropOnStageAsync(string stage, bool markDone)
+    {
+        if (DraggedTaskId is null)
+        {
+            return;
+        }
+
+        var task = Tasks.FirstOrDefault(t => t.Id == DraggedTaskId.Value);
+        if (task is null)
+        {
+            EndDrag();
+            return;
+        }
+
+        task.IsDone = markDone;
+        task.Stage = markDone ? "Done" : stage;
+        task.UpdatedAt = DateTimeOffset.UtcNow;
+        StatusMessage = markDone ? "Task completed." : $"Moved to {stage}.";
+
+        EndDrag();
+        await PersistAsync();
+    }
+
+    private async Task PersistAsync()
+    {
+        var payload = JsonSerializer.Serialize(Tasks);
+        await JS.InvokeVoidAsync("focusBoard.save", StorageKey, payload);
+        StateHasChanged();
+    }
+
+    private static int PriorityRank(string priority) => priority switch
+    {
+        "High" => 3,
+        "Medium" => 2,
+        _ => 1
+    };
+
+    private sealed class TaskItem
+    {
+        public Guid Id { get; set; }
+        public string Title { get; set; } = string.Empty;
+        public string Notes { get; set; } = string.Empty;
+        public string Priority { get; set; } = "Medium";
+        public string Stage { get; set; } = "Inbox";
+        public bool IsDone { get; set; }
+        public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+    }
+}
