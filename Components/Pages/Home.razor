@@ -1,6 +1,5 @@
 ﻿@page "/"
 @using System.Text.Json
-@implements IAsyncDisposable
 @inject IJSRuntime JS
 
 <PageTitle>Home</PageTitle>
@@ -162,6 +161,11 @@
          @onclick="CloseComposer">
         <section class="modal-panel"
                  @onclick:stopPropagation="true">
+            <button type="button"
+                    class="modal-hidden-close"
+                    aria-hidden="true"
+                    tabindex="-1"
+                    @onclick="CloseComposer"></button>
             <div class="lane-header">
                 <div>
                     <div class="stat-label">New Card</div>
@@ -227,7 +231,6 @@
     private bool _loaded;
     private bool _focusComposer;
     private ElementReference ComposerPanel;
-    private DotNetObjectReference<Home>? _selfRef;
 
     private List<TaskItem> Tasks { get; set; } =
     [
@@ -268,8 +271,11 @@
         {
             _focusComposer = false;
             await JS.InvokeVoidAsync("focusBoard.focusComposer");
-            _selfRef ??= DotNetObjectReference.Create(this);
-            await JS.InvokeVoidAsync("focusBoard.bindEscape", _selfRef);
+            await JS.InvokeVoidAsync("focusBoard.bindEscape");
+        }
+        else if (!IsComposerOpen)
+        {
+            await JS.InvokeVoidAsync("focusBoard.unbindEscape");
         }
     }
 
@@ -293,14 +299,6 @@
     {
         IsComposerOpen = false;
         _focusComposer = false;
-        _ = JS.InvokeVoidAsync("focusBoard.unbindEscape");
-    }
-
-    [JSInvokable]
-    public void HandleComposerEscape()
-    {
-        CloseComposer();
-        StateHasChanged();
     }
 
     private void StartDrag(Guid id)
@@ -498,11 +496,5 @@
         public string Stage { get; set; } = "Inbox";
         public bool IsDone { get; set; }
         public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        _selfRef?.Dispose();
-        await ValueTask.CompletedTask;
     }
 }

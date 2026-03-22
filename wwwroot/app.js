@@ -12,12 +12,16 @@ window.focusBoard = {
       backdrop.focus();
     }
   },
-  bindEscape(dotnetRef) {
+  bindEscape() {
     this.unbindEscape();
     this._escapeHandler = (event) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        dotnetRef.invokeMethodAsync('HandleComposerEscape');
+        this.unbindEscape();
+        const closeButton = document.querySelector('.modal-hidden-close');
+        if (closeButton instanceof HTMLElement) {
+          closeButton.click();
+        }
       }
     };
     document.addEventListener('keydown', this._escapeHandler, true);
