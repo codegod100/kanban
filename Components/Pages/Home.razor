@@ -247,15 +247,18 @@
     {
         if (firstRender && !_loaded)
         {
-            var stored = await JS.InvokeAsync<string?>("focusBoard.load", StorageKey);
-            if (!string.IsNullOrWhiteSpace(stored))
+        var stored = await JS.InvokeAsync<string?>("focusBoard.load", StorageKey);
+        if (!string.IsNullOrWhiteSpace(stored))
+        {
+            var parsed = JsonSerializer.Deserialize<List<TaskItem>>(stored);
+            if (parsed is not null)
             {
-                var parsed = JsonSerializer.Deserialize<List<TaskItem>>(stored);
-                if (parsed is not null)
-                {
-                    Tasks = parsed;
-                }
+                Tasks = parsed
+                    .Select(NormalizeTask)
+                    .Where(task => task.IsDone || BoardStages.Contains(task.Stage))
+                    .ToList();
             }
+        }
 
             _loaded = true;
             StateHasChanged();
@@ -456,6 +459,35 @@
         "Medium" => 2,
         _ => 1
     };
+
+    private static TaskItem NormalizeTask(TaskItem task)
+    {
+        task.Priority = task.Priority switch
+        {
+            "High" => "High",
+            "Low" => "Low",
+            _ => "Medium"
+        };
+
+        if (task.IsDone || task.Stage == "Done")
+        {
+            task.IsDone = true;
+            task.Stage = "Done";
+            return task;
+        }
+
+        task.Stage = task.Stage switch
+        {
+            "Inbox" => "Inbox",
+            "Doing" => "Doing",
+            "Blocked" => "Blocked",
+            "Next" => "Doing",
+            "Waiting" => "Blocked",
+            _ => "Inbox"
+        };
+
+        return task;
+    }
 
     private sealed class TaskItem
     {
