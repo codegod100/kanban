@@ -1,5 +1,6 @@
 ﻿@page "/"
 @using System.Text.Json
+@implements IAsyncDisposable
 @inject IJSRuntime JS
 
 <PageTitle>Home</PageTitle>
@@ -155,8 +156,12 @@
 
 @if (IsComposerOpen)
 {
-    <div class="modal-backdrop" @onclick="CloseComposer">
-        <section class="modal-panel" @onclick:stopPropagation="true">
+    <div class="modal-backdrop"
+         tabindex="0"
+         @ref="ComposerPanel"
+         @onclick="CloseComposer">
+        <section class="modal-panel"
+                 @onclick:stopPropagation="true">
             <div class="lane-header">
                 <div>
                     <div class="stat-label">New Card</div>
@@ -220,6 +225,9 @@
     private string? DragOverStage { get; set; }
     private string? StatusMessage { get; set; }
     private bool _loaded;
+    private bool _focusComposer;
+    private ElementReference ComposerPanel;
+    private DotNetObjectReference<Home>? _selfRef;
 
     private List<TaskItem> Tasks { get; set; } =
     [
@@ -237,23 +245,29 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender || _loaded)
+        if (firstRender && !_loaded)
         {
-            return;
-        }
-
-        var stored = await JS.InvokeAsync<string?>("focusBoard.load", StorageKey);
-        if (!string.IsNullOrWhiteSpace(stored))
-        {
-            var parsed = JsonSerializer.Deserialize<List<TaskItem>>(stored);
-            if (parsed is not null)
+            var stored = await JS.InvokeAsync<string?>("focusBoard.load", StorageKey);
+            if (!string.IsNullOrWhiteSpace(stored))
             {
-                Tasks = parsed;
+                var parsed = JsonSerializer.Deserialize<List<TaskItem>>(stored);
+                if (parsed is not null)
+                {
+                    Tasks = parsed;
+                }
             }
+
+            _loaded = true;
+            StateHasChanged();
         }
 
-        _loaded = true;
-        StateHasChanged();
+        if (IsComposerOpen && _focusComposer)
+        {
+            _focusComposer = false;
+            await JS.InvokeVoidAsync("focusBoard.focusComposer");
+            _selfRef ??= DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("focusBoard.bindEscape", _selfRef);
+        }
     }
 
     private List<TaskItem> GetStageTasks(string stage) => Tasks
@@ -268,12 +282,22 @@
     {
         DraftStage = stage;
         IsComposerOpen = true;
+        _focusComposer = true;
         StatusMessage = null;
     }
 
     private void CloseComposer()
     {
         IsComposerOpen = false;
+        _focusComposer = false;
+        _ = JS.InvokeVoidAsync("focusBoard.unbindEscape");
+    }
+
+    [JSInvokable]
+    public void HandleComposerEscape()
+    {
+        CloseComposer();
+        StateHasChanged();
     }
 
     private void StartDrag(Guid id)
@@ -442,5 +466,11 @@
         public string Stage { get; set; } = "Inbox";
         public bool IsDone { get; set; }
         public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _selfRef?.Dispose();
+        await ValueTask.CompletedTask;
     }
 }
