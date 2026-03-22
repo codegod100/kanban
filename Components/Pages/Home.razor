@@ -168,7 +168,10 @@
             </div>
 
             <div class="control-stack compact-stack">
-                <FluentTextField @bind-Value="DraftTitle" Label="Task title" Appearance="FluentInputAppearance.Outline" />
+                <FluentTextField @bind-Value="DraftTitle"
+                                 Label="Task title"
+                                 Appearance="FluentInputAppearance.Outline"
+                                 AutoComplete="off" />
                 <FluentTextArea @bind-Value="DraftNotes" Label="Notes" Rows="5" Appearance="FluentInputAppearance.Outline" />
 
                 <div class="split-fields">
